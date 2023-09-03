@@ -1,0 +1,176 @@
+import xml.etree.ElementTree as ET
+from docx import Document
+from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+from docx.oxml.ns import nsdecls
+from docx.oxml import parse_xml
+import re
+
+# Helper function to convert DOCX paragraph styles to XML element attributes
+def style_to_attributes(paragraph, element):
+    run = paragraph.runs[0] if paragraph.runs else None
+
+    # Font style
+    if run and run.font.name:
+        element.set("font", run.font.name)
+    else:
+        element.set("font", "Arial")  # Default font if not specified
+
+    # Font size
+    if run and run.font.size:
+        element.set("font_size", str(run.font.size.pt))
+    else:
+        element.set("font_size", "12")  # Default font size if not specified
+
+    # Bold, italic, and underline
+    if run:
+        element.set("bold", "true" if run.bold else "false")
+        element.set("italic", "true" if run.italic else "false")
+        element.set("underline", "true" if run.underline else "false")
+    else:
+        element.set("bold", "false")
+        element.set("italic", "false")
+        element.set("underline", "false")
+
+    # Typographic alignment
+    if paragraph.alignment == WD_PARAGRAPH_ALIGNMENT.LEFT:
+        element.set("alignment", "left")
+    elif paragraph.alignment == WD_PARAGRAPH_ALIGNMENT.CENTER:
+        element.set("alignment", "center")
+    elif paragraph.alignment == WD_PARAGRAPH_ALIGNMENT.RIGHT:
+        element.set("alignment", "right")
+    elif paragraph.alignment == WD_PARAGRAPH_ALIGNMENT.JUSTIFY:
+        element.set("alignment", "justify")
+    else:
+        element.set("alignment", "unknown")
+
+    # Leading (line spacing)
+    if paragraph.paragraph_format.line_spacing is not None:
+        # Convert line spacing value from lines to points (1 line = 12 points)
+        leading_value = paragraph.paragraph_format.line_spacing * 12
+        element.set("leading", str(leading_value))
+    else:
+        element.set("leading", "normal")  # Default leading if not specified
+
+def docx_to_xml(docx_file, xml_file):
+    doc = Document(docx_file)
+    root = ET.Element("document")
+    is_table = False
+    line_number = 1  # Initialize line number counter
+    
+    # Initialize position variables
+    current_left = 0
+    current_top = 0
+
+    # Initialize variables to track headers and footers
+    header_text = ""
+    footer_text = ""
+
+    for paragraph in doc.paragraphs:
+        element = ET.Element("text")
+
+        # Handle headings
+        if paragraph.style.name.startswith("Heading"):
+            element.tag = "header"
+
+        # Handle numbered lists
+        if re.match(r'^\d+\.', paragraph.text):
+            element.tag = "list_item"
+
+        # Handle links to sources (assuming URLs start with "http" or "www")
+        if re.search(r'http|www', paragraph.text):
+            element.tag = "link"
+
+        # Set style attributes including typographic alignment and leading
+        style_to_attributes(paragraph, element)
+
+        # Extract and add the text content
+        element.text = paragraph.text
+
+        # Capture and add the indentation (in points) as an attribute if defined
+        if paragraph.paragraph_format.left_indent is not None:
+            element.set("indent", str(paragraph.paragraph_format.left_indent.pt))
+
+        # Check if we're inside a table
+        if is_table:
+            # Add the element to the last cell of the current row
+            current_row[-1].append(element)
+        else:
+            # Add the element to the root
+            root.append(element)
+        
+        # Count the line number for the current element and add it as an attribute
+        element.set("line_number", str(line_number))
+        line_number += 1  # Increment line number
+        
+        # Check for headers and footers
+        if paragraph.alignment == WD_PARAGRAPH_ALIGNMENT.CENTER:
+            header_text += paragraph.text + "\n"
+        elif paragraph.alignment == WD_PARAGRAPH_ALIGNMENT.RIGHT:
+            footer_text += paragraph.text + "\n"
+
+    # Handle tables
+    for table in doc.tables:
+        is_table = True
+        table_element = ET.Element("table")
+        for row in table.rows:
+            current_row = []
+            row_element = ET.SubElement(table_element, "row")
+            for cell in row.cells:
+                cell_element = ET.SubElement(row_element, "cell")
+                current_row.append(cell_element)
+                for paragraph in cell.paragraphs:
+                    element = ET.Element("text")
+
+                    # Set style attributes for text in table cells
+                    style_to_attributes(paragraph, element)
+
+                    # Extract and add the text content
+                    element.text = paragraph.text
+
+                    # Add the element to the cell
+                    cell_element.append(element)
+
+        # Add the table element to the root
+        root.append(table_element)
+
+    # Handle pictures
+    for shape in doc.inline_shapes:
+        if shape.type == 3:  # Check if it's a picture
+            picture_element = ET.Element("picture")
+
+            # Extract and add the size attributes
+            picture_element.set("width", str(shape.width.pt))
+            picture_element.set("height", str(shape.height.pt))
+
+            # Calculate and add the position attributes
+            picture_element.set("left", str(current_left))
+            picture_element.set("top", str(current_top))
+
+            # Add the picture element to the root
+            root.append(picture_element)
+
+        # Update the position variables for the next inline shape
+        current_left += shape.width.pt
+        current_top += shape.height.pt
+
+    # Note headers and footers in the XML structure
+    if header_text:
+        header_element = ET.Element("header")
+        header_element.text = header_text
+        root.append(header_element)
+
+    if footer_text:
+        footer_element = ET.Element("footer")
+        footer_element.text = footer_text
+        root.append(footer_element)
+
+    # Save the XML file
+    tree = ET.ElementTree(root)
+    tree.write(xml_file, encoding="utf-8", xml_declaration=True)
+
+if __name__ == "__main__":
+    docx_file = "output.docx"  # Replace with your Russian DOCX file path
+    xml_file = "output12.xml"  # Output XML file path
+
+    # Convert Russian DOCX to XML while preserving styles, indentation, tables, typographic alignment, and leading
+    docx_to_xml(docx_file, xml_file)
