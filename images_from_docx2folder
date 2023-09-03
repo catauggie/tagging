@@ -1,0 +1,30 @@
+import os
+import zipfile
+from io import BytesIO
+from PIL import Image
+
+# Function to extract and save images from a DOCX file
+def save_images_from_docx(docx_file, output_folder):
+    # Create the output folder if it doesn't exist
+    os.makedirs(output_folder, exist_ok=True)
+
+    # Open the DOCX file as a Zip archive
+    with zipfile.ZipFile(docx_file, 'r') as docx_zip:
+        # Find and extract all image files from the archive
+        image_files = [name for name in docx_zip.namelist() if name.startswith('word/media/')]
+        for image_file in image_files:
+            with docx_zip.open(image_file) as image_data:
+                # Load the image using PIL
+                image = Image.open(image_data)
+
+                # Generate a unique filename and save the image to the output folder
+                image_filename = os.path.basename(image_file)
+                image_path = os.path.join(output_folder, image_filename)
+                image.save(image_path)
+
+
+if __name__ == "__main__":
+    docx_file = "43.0.22-2020.docx"  # Replace with the path to your DOCX file
+    output_folder = "output_images_43.0.22-2020"  # Replace with the path to your output folder
+
+    save_images_from_docx(docx_file, output_folder)
