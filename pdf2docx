@@ -1,0 +1,13 @@
+from pdf2docx import Converter
+
+def pdf_to_docx(pdf_file, docx_file):
+    cv = Converter(pdf_file)
+    cv.convert(docx_file, start=0, end=None)
+    cv.close()
+
+if __name__ == "__main__":
+    pdf_file = "43.0.22-2020.pdf"   # Replace with your PDF file path
+    docx_file = "43.0.22-2020.docx"  # Output DOCX file path
+
+    # Convert PDF to DOCX while preserving styles
+    pdf_to_docx(pdf_file, docx_file)
