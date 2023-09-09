@@ -36,6 +36,75 @@ def pdf_to_docx(pdf_file, docx_file):
     cv.convert(docx_file, start=0, end=None)
     cv.close()
 
+import re
+import xml.etree.ElementTree as ET
+from docx import Document
+from docx.shared import Pt, RGBColor
+from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+
+def style_to_attributes(paragraph, element):
+    # Function to extract and add style attributes to the XML element
+
+    # Check if there are runs in the paragraph
+    if paragraph.runs:
+        # Extract font properties from the first run
+        font = paragraph.runs[0].font
+
+        # Extract and add font properties if available
+        if font.name:
+            element.set("font_name", font.name)
+        if font.size:
+            element.set("font_size", str(font.size.pt))
+        if font.bold:
+            element.set("font_bold", "true")
+        if font.italic:
+            element.set("font_italic", "true")
+        if font.underline:
+            element.set("font_underline", "true")
+        if font.color.rgb:
+            element.set("font_color", str(font.color.rgb))
+
+    # Extract alignment
+    alignment = paragraph.alignment
+    if alignment == WD_PARAGRAPH_ALIGNMENT.LEFT:
+        element.set("alignment", "left")
+    elif alignment == WD_PARAGRAPH_ALIGNMENT.CENTER:
+        element.set("alignment", "center")
+    elif alignment == WD_PARAGRAPH_ALIGNMENT.RIGHT:
+        element.set("alignment", "right")
+    elif alignment == WD_PARAGRAPH_ALIGNMENT.JUSTIFY:
+        element.set("alignment", "justify")
+
+    # Extract spacing properties
+    spacing = paragraph.paragraph_format
+    if spacing.space_before:
+        element.set("space_before", str(spacing.space_before.pt))
+    if spacing.space_after:
+        element.set("space_after", str(spacing.space_after.pt))
+    if spacing.line_spacing:
+        element.set("line_spacing", str(spacing.line_spacing))
+
+def note_text_from_table(table, root):
+    # Function to extract and note text from a table consisting of one cell
+
+    # Check if the table has only one cell
+    if len(table.rows) == 1 and len(table.rows[0].cells) == 1:
+        cell = table.rows[0].cells[0]
+        
+        # Create the <term_table> element
+        term_table_element = ET.Element("term_table")
+        root.append(term_table_element)
+        
+        # Counter for naming <text> tags within the <term_table>
+        text_counter = 1
+        
+        for paragraph in cell.paragraphs:
+            element = ET.Element(f"text_term_table_{text_counter}")
+            text_counter += 1
+            style_to_attributes(paragraph, element)
+            element.text = paragraph.text
+            term_table_element.append(element)
+
 def style_to_attributes(paragraph, element):
     run = paragraph.runs[0] if paragraph.runs else None
 
@@ -140,28 +209,32 @@ def docx_to_xml(docx_file, _xml_file_):
 
     # Handle tables
     for table in doc.tables:
-        is_table = True
-        table_element = ET.Element("table")
-        for row in table.rows:
-            current_row = []
-            row_element = ET.SubElement(table_element, "row")
-            for cell in row.cells:
-                cell_element = ET.SubElement(row_element, "cell")
-                current_row.append(cell_element)
-                for paragraph in cell.paragraphs:
-                    element = ET.Element("text")
+        if len(table.rows) == 1 and len(table.rows[0].cells) == 1:
+            # Note text from tables consisting of one cell
+            note_text_from_table(table, root)
+        else:
+            # Add the entire table to the root
+            table_element = ET.Element("table")
+            for row in table.rows:
+                current_row = []
+                row_element = ET.SubElement(table_element, "row")
+                for cell in row.cells:
+                    cell_element = ET.SubElement(row_element, "cell")
+                    current_row.append(cell_element)
+                    for paragraph in cell.paragraphs:
+                        element = ET.Element("text")
 
-                    # Set style attributes for text in table cells
-                    style_to_attributes(paragraph, element)
+                        # Set style attributes for text in table cells
+                        style_to_attributes(paragraph, element)
 
-                    # Extract and add the text content
-                    element.text = paragraph.text
+                        # Extract and add the text content
+                        element.text = paragraph.text
 
-                    # Add the element to the cell
-                    cell_element.append(element)
+                        # Add the element to the cell
+                        cell_element.append(element)
 
-        # Add the table element to the root
-        root.append(table_element)
+            # Add the table element to the root
+            root.append(table_element)
 
     # Handle pictures
     for shape in doc.inline_shapes:
@@ -916,6 +989,7 @@ def defaultXML2XML(default_xml, xml_structure):
                     label_note.text = 'Примечание — '
                     text_note = ET.SubElement(non_note, 'p')
                     text_note.text = parsed_text[0].replace('П р и м е ч а н и е', '').strip()
+                
                 elif list(line_numbers_dist.keys())[sec] == matching_section_id:    
                     term_pattern = r'^\d+(\.\d+)+'
                     term_id = re.match(term_pattern, parsed_text[0])
@@ -929,23 +1003,49 @@ def defaultXML2XML(default_xml, xml_structure):
                         else:
                             # Handle the case where ':' is not present in parsed_text[0]
                             label = parsed_text[0].strip()  # Extracted label (full text)
-                            definition = ""  # Empty definition or any other handling you prefer
+                            definition = None  # None if there is no definition
 
-                            # Create the term-sec structure
-                        term_sec_tag = ET.SubElement(tag_id[0], f'term-sec_{term_id[0]}')
-                        # Add label and definition as tbx:termEntry
+                        # Create the term-sec structure
+                        term_sec_tag = ET.SubElement(tag_id[0], f'term-sec')
+                        term_sec_tag.set('id', f'term_sec_{term_id[0]}')
+                        
+                        # Add definition if it is not None and not empty
+                        term_sec_label_tag = ET.SubElement(term_sec_tag, 'label')
+                        term_sec_label_tag.text = term_id[0]
+                        
                         term_entry_tag = ET.SubElement(term_sec_tag, 'tbx:termEntry')
+                        term_entry_tag.set('id', f'term_entry_{term_id[0]}')
                         term_entry_id = ET.SubElement(term_entry_tag, 'tbx:langSet')
                         term_entry_id.set('xml:lang', 'ru')
 
-                        # Add definition
-                        definition_tag = ET.SubElement(term_entry_id, 'tbx:definition')
-                        definition_tag.text = definition
+                        # Set the display attribute to "frame" if definition is None or empty
+                        if definition is None or definition == "":
+                            term_sec_tag.set('display', 'frame')
 
-                        # Add label
+                            # Check if there is a definition available in the lists
+                            if len(text_term_table_list_1) == len(text_term_table_list_2):
+                                index = sec  # Use the current index, but it's better to use an index associated with the lists
+                                if index < len(text_term_table_list_1):
+                                    definition_tag = ET.SubElement(term_entry_id, 'tbx:definition')
+                                    definition_tag.text = text_term_table_list_1[index]
+
+                                    # Add <tbx:source> with text from text_term_table_list_2
+                                    source_tag = ET.SubElement(term_entry_id, 'tbx:source')
+                                    source_tag.text = text_term_table_list_2[index]
+                                else:
+                                    raise Exception("Not enough definitions available in the lists.")
+                            else:
+                                raise Exception("Lengths of text_term_table_list_1 and text_term_table_list_2 do not match.")
+                        elif definition is not None and definition != "":
+                            definition_tag = ET.SubElement(term_entry_id, 'tbx:definition')
+                            definition_tag.text = definition
+
                         tig_tag = ET.SubElement(term_entry_id, 'tbx:tig')
                         term_tag = ET.SubElement(tig_tag, 'tbx:term')
-                        term_tag.text = label
+                        partOfSpeech_tag = ET.SubElement(tig_tag, 'tbx:partOfSpeech')
+                        partOfSpeech_tag.set('value', "noun")
+                        term_tag.text = re.sub(r'^\d+(\.\d+)+\s', '', label)
+                    
                     elif 'В настоящем стандарте' in parsed_text[0]:
                         # Add parsed_text containing 'В настоящем стандарте' as a <p> tag
                         #p_id = match.group(1)
@@ -985,17 +1085,23 @@ def defaultXML2XML(default_xml, xml_structure):
                 else:
                     p_tag = ET.SubElement(tag_id[0], 'p')
                     p_tag.text = replace_brackets_with_tags(parsed_text[0])
+    
+    # Define the namespace and map it to a prefix (e.g., 'tbx')
+    #namespace = {'tbx': 'http://example.com/tbx-namespace-uri'}  # Replace with the actual namespace URI
+
+    # Find all <term-sec> elements
+    term_sec_elements = standard_root.findall(".//term-sec")#, namespaces=namespace)
 
     # Create a new XML tree with the modified structure
     new_tree = ET.ElementTree(standard_root)
 
     # Save the new XML to a file
     new_tree.write(xml_structure, encoding='utf-8', xml_declaration=True)
+    return standard_root
    
 
-
 if __name__ == "__main__":
-    pdf_file = "43.4.27-2020.pdf"   # Replace with your PDF file path
+    pdf_file = "8.703-2020.pdf"   # Replace with your PDF file path
     base_filename = os.path.splitext(pdf_file)[0]  # Get the base filename without extension
 
     # Create a folder with the base filename
