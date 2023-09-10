@@ -274,6 +274,18 @@ def docx_to_xml(docx_file, _xml_file_):
 
 def defaultXML2XML(default_xml, xml_structure):
     #required funstions
+    def remove_year_and_em_dash(sentence):
+        # Define a regular expression pattern to match the year (four digits) and surrounding em dash and spaces
+        pattern = r'—?\s?\d{4}\b'
+
+        # Use re.sub to replace the matched pattern with an empty string
+        result_sentence = re.sub(pattern, '', sentence)
+
+        # Remove any extra whitespace that may have resulted from the removal
+        result_sentence = ' '.join(result_sentence.split())
+
+        return result_sentence
+
     def convert_russian_date(input_date):
                 # Define the mapping of Russian month names to their numeric values
                 months = {
@@ -361,8 +373,10 @@ def defaultXML2XML(default_xml, xml_structure):
     # Add the <doc-ident> structure within <iso-meta>
     doc_ident = ET.SubElement(iso_meta, 'doc-ident')
     sdo = ET.SubElement(doc_ident, 'sdo')
+    proj_id_sdo = ET.SubElement(doc_ident, 'proj-id')
     language = ET.SubElement(doc_ident, 'language')
     language.text = 'ru'  # Set the language to 'ru'
+    release_version_sdo = ET.SubElement(doc_ident, 'release-version')
 
     # Add the <std-ident> structure within <iso-meta>
     std_ident = ET.SubElement(iso_meta, 'std-ident')
@@ -374,7 +388,11 @@ def defaultXML2XML(default_xml, xml_structure):
 
     # Add the <std-ref type="dated"> structure within <iso-meta>
     std_ref_dated = ET.SubElement(iso_meta, 'std-ref', {'type': 'dated'})
-
+    std_ref_short = ET.SubElement(iso_meta, 'std-ref', {'type': 'short'})
+    std_ref_undated = ET.SubElement(iso_meta, 'std-ref', {'type': 'undated'})
+    iso_meta_doc_ref = ET.SubElement(iso_meta, 'doc-ref')
+    iso_meta_comm_ref = ET.SubElement(iso_meta, 'comm-ref')
+    
     # Add the <secretariat> tag within <iso-meta>
     secretariat = ET.SubElement(iso_meta, 'secretariat')
 
@@ -470,10 +488,12 @@ def defaultXML2XML(default_xml, xml_structure):
             # Extract the text content from the <text> tag and add it to <intro> (ru)
             text_content = text_element.text
             intro_ru.text = text_content
-
+            full_ru.text = text_content
+            
             # Translate the content from Russian to English and add it to <intro> (eng)
             translated_text = translator.translate(text_content)
             intro_eng.text = translated_text
+            full_eng.text = translated_text
 
         # Check if the attributes match the specified criteria for <main>
         elif (
@@ -489,10 +509,12 @@ def defaultXML2XML(default_xml, xml_structure):
             # Extract the text content from the <text> tag and add it to <main> (ru)
             text_content = text_element.text
             main_ru.text = text_content
-
+            full_ru.text += ". " + text_content
+            
             # Translate the content from Russian to English and add it to <main> (eng)
             translated_text = translator.translate(text_content)
             main_eng.text = translated_text
+            full_eng.text += ". " + translated_text
 
         # Check if the attributes match the specified criteria for <compl>
         elif (
@@ -508,10 +530,12 @@ def defaultXML2XML(default_xml, xml_structure):
             # Extract the text content from the <text> tag and add it to <full> (ru)
             text_content = text_element.text
             compl_ru.text = text_content
+            full_ru.text += ". " + text_content
 
             # Translate the content from Russian to English and add it to <full> (eng)
             translated_text = translator.translate(text_content)
             compl_eng.text = translated_text
+            full_eng.text += ". " + translated_text
         elif (
             text_element.get('font') == 'ArialMT' and
             text_element.get('font_size') == '10.0' and
@@ -529,33 +553,7 @@ def defaultXML2XML(default_xml, xml_structure):
 
             # Add the extracted text content to <sdo>
             sdo.text = text_content
-        elif (
-            text_element.get('font') == 'Arial' and
-            text_element.get('font_size') == '10.0' and
-            text_element.get('bold') == 'true' and
-            text_element.get('italic') == 'false' and
-            text_element.get('underline') == 'false' and
-            text_element.get('alignment') == 'left' and
-            text_element.get('leading') == '11.65' and
-            text_element.get('indent') == '0.0'
-        ):
-            # Extract the text content from the <text> tag
-            text_content = text_element.text
-
-            # Use regular expressions to find the pattern with digits and dots
-            matches = re.findall(r'(\d+(\.\d+)?)', text_content)
-
-            if matches:
-                # Join the matched digits with dots (if there are multiple matches)
-                digits_with_dots = '.'.join(match[0] for match in matches)
-
-                # Add the extracted digits with dots to <doc-number>
-                doc_number.text = digits_with_dots
-                doc_number_nat_meta.text = digits_with_dots
-
-            std_ref_text = ET.SubElement(std_ref_dated, 'std-ref')
-            std_ref_text.text = text_content
-
+        
         elif (
             text_element.get('font') == 'Arial' and
             text_element.get('font_size') == '12' and
@@ -794,6 +792,39 @@ def defaultXML2XML(default_xml, xml_structure):
             # Create the <title> element
             title = ET.SubElement(ref_list, 'title')
             title.text = text_element.text
+        
+                  
+            
+    
+    for text_element in root.findall('.//text'):
+        if (
+            text_element.get('font') == 'Arial' and
+            text_element.get('font_size') == '10.0' and
+            text_element.get('bold') == 'true' and
+            text_element.get('italic') == 'false' and
+            text_element.get('underline') == 'false' and
+            text_element.get('alignment') == 'left' and
+            text_element.get('leading') == '11.65' and
+            text_element.get('indent') == '0.0'
+        ):
+            # Extract the text content from the <text> tag
+            text_content = text_element.text
+
+            # Use regular expressions to find the pattern with digits and dots
+            matches = re.findall(r'(\d+(\.\d+)?)', text_content)
+            if matches:
+                # Join the matched digits with dots (if there are multiple matches)
+                digits_with_dots = '.'.join(match[0] for match in matches)
+
+                # Add the extracted digits with dots to <doc-number>
+                doc_number.text = digits_with_dots
+                doc_number_nat_meta.text = digits_with_dots
+
+                #std_ref_text = ET.SubElement(std_ref_dated, 'std-ref')
+                std_ref_dated.text = text_content
+                std_ref_short.text = text_content
+                std_ref_undated.text = remove_year_and_em_dash(text_content)
+                break
 
 
     for link_element in root.findall('.//link'):
@@ -956,10 +987,23 @@ def defaultXML2XML(default_xml, xml_structure):
 
         return parsed_texts
 
-    def replace_brackets_with_tags(text):
+    '''def replace_brackets_with_tags(text):
         def replace(match):
             index = match.group(1)
             return f'<xref ref-type="bibr" rid="biblref_{index}">[{index}]</xref>'
+
+        pattern = r'\[(\d+)\]'
+        replaced_text = re.sub(pattern, replace, text)
+        return replaced_text'''
+    
+    def replace_brackets_with_tags(text):
+        def replace(match):
+            index = match.group(1)
+            xref_element = ET.Element('xref')
+            xref_element.set('ref-type', 'bibr')
+            xref_element.set('rid', f'biblref_{index}')
+            xref_element.text = f'[{index}]'
+            return ET.tostring(xref_element).decode()
 
         pattern = r'\[(\d+)\]'
         replaced_text = re.sub(pattern, replace, text)
@@ -1147,7 +1191,7 @@ def defaultXML2XML(default_xml, xml_structure):
             def_tag.text = next(text_iterator_1)
     for source_tag in source_tags:
         if source_tag.text is None:
-            source_tag.text = next(text_iterator_2)
+            source_tag.text = replace_brackets_with_tags(next(text_iterator_2))
     
     #full_ru.text = intro_ru.text + main_ru.text + compl_ru.text
     #full_eng.text = Translator(full_ru.text)
