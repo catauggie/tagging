@@ -11,6 +11,7 @@ import os
 import zipfile
 from io import BytesIO
 from PIL import Image
+import itertools
 
 # Function to extract and save images from a DOCX file
 def save_images_from_docx(docx_file, output_folder):
@@ -493,7 +494,7 @@ def defaultXML2XML(default_xml, xml_structure):
             translated_text = translator.translate(text_content)
             main_eng.text = translated_text
 
-        # Check if the attributes match the specified criteria for <full>
+        # Check if the attributes match the specified criteria for <compl>
         elif (
             text_element.get('font') == 'Arial' and
             text_element.get('font_size') == '12' and
@@ -506,11 +507,11 @@ def defaultXML2XML(default_xml, xml_structure):
         ):
             # Extract the text content from the <text> tag and add it to <full> (ru)
             text_content = text_element.text
-            full_ru.text = text_content
+            compl_ru.text = text_content
 
             # Translate the content from Russian to English and add it to <full> (eng)
             translated_text = translator.translate(text_content)
-            full_eng.text = translated_text
+            compl_eng.text = translated_text
         elif (
             text_element.get('font') == 'ArialMT' and
             text_element.get('font_size') == '10.0' and
@@ -973,16 +974,24 @@ def defaultXML2XML(default_xml, xml_structure):
         return None
 
     xml_tree_dummy = ET.ElementTree(standard_root)  # Replace with your XML tree
-    keywords_to_find = ['термины', 'определения']
-    matching_section_id = find_section_id_with_title(xml_tree_dummy, keywords_to_find)
-
+    
+    keywords_to_find_terms = ['термины', 'определения']
+    matching_section_id_terms = find_section_id_with_title(xml_tree_dummy, keywords_to_find_terms)
+    
+    keywords_to_find_refs = ['ссылки']
+    matching_section_id_refs = find_section_id_with_title(xml_tree_dummy, keywords_to_find_refs)
+      
     pattern_id = r'^(\d+(\.\d+)*)'
+    
     for sec in range(len(list(line_numbers_dist.values()))):
         tag_id = standard_root.findall(f".//*[@id='{list(line_numbers_dist.keys())[sec]}']")
+        
         for line_number in list(line_numbers_dist.values())[sec]: 
             parsed_text = parse_xml_by_line_number(xml_file, line_number)
+            
             if parsed_text is not None and len(parsed_text) == 1:
                 match = re.match(pattern_id, parsed_text[0])
+                
                 if 'П р и м е ч а н и е' in parsed_text[0]:
                     non_note = ET.SubElement(tag_id[0], 'non-normative-note')
                     label_note = ET.SubElement(non_note, 'label')
@@ -990,7 +999,38 @@ def defaultXML2XML(default_xml, xml_structure):
                     text_note = ET.SubElement(non_note, 'p')
                     text_note.text = parsed_text[0].replace('П р и м е ч а н и е', '').strip()
                 
-                elif list(line_numbers_dist.keys())[sec] == matching_section_id:    
+                elif list(line_numbers_dist.keys())[sec] == matching_section_id_refs:                    
+                    if 'В настоящем стандарте' in parsed_text[0]:
+                        # Add parsed_text containing 'В настоящем стандарте' as a <p> tag
+                        p_tag = ET.SubElement(tag_id[0], 'p')
+                        p_tag.text = parsed_text[0]                    
+                    elif 'В настоящем стандарте' not in parsed_text[0]:
+                        if parsed_text[0].startswith('ГОСТ'):                              
+                            # Regular expression pattern to match ГОСТ references with variations
+                            gost_pattern = r'ГОСТ\s+(?:ISO/IEC|Р|Р\s+ИСО)?\s+\d[\d./-]*'
+                            matches_gost = re.findall(gost_pattern, parsed_text[0])
+
+                            #if matches_gost:
+                            ref_gost = matches_gost[0]#gost_references.extend(matches)
+                            description_gost = re.sub(gost_pattern, '', parsed_text[0]).strip()
+
+                            ref_list_tag = ET.SubElement(tag_id[0], 'ref-list')
+                            ref_list_tag.set('content-type', 'normref')
+                            ref_list_tag_id = ET.SubElement(ref_list_tag, 'ref')
+                            ref_list_tag_id.set('id', 'normref')
+                            ref_list_tag_std = ET.SubElement(ref_list_tag_id, 'std')
+                            ref_list_tag_std.set('type', 'undated')
+                            ref_list_tag_std.set('std-id', 'ГОСТ')
+
+                            #if ref_gost or (name_gost and name_gost_continue):
+                            ref_list_tag_std_ref = ET.SubElement(ref_list_tag_std, 'std-ref')
+                            ref_list_tag_std_ref.text = ref_gost
+                            ref_list_tag_std_title = ET.SubElement(ref_list_tag_std, 'title')
+                            #ref_list_tag_std_title.text = description_gost# + name_gost_continue
+                        elif parsed_text[0][0].islower():  # Check if the first character is lowercase
+                            description_gost += parsed_text[0]
+                        ref_list_tag_std_title.text = description_gost
+                elif list(line_numbers_dist.keys())[sec] == matching_section_id_terms:    
                     term_pattern = r'^\d+(\.\d+)+'
                     term_id = re.match(term_pattern, parsed_text[0])
                     if term_id and 'В настоящем стандарте' not in parsed_text[0]:
@@ -1017,26 +1057,18 @@ def defaultXML2XML(default_xml, xml_structure):
                         term_entry_tag.set('id', f'term_entry_{term_id[0]}')
                         term_entry_id = ET.SubElement(term_entry_tag, 'tbx:langSet')
                         term_entry_id.set('xml:lang', 'ru')
+                        
+                        # Create a set to keep track of processed term_sec_tags
+                        #processed_term_sec_tags = set()
 
-                        # Set the display attribute to "frame" if definition is None or empty
+                        #for index in range(len(text_term_table_list_1)):
+                            # Set the display attribute to "frame" if definition is None or empty
                         if definition is None or definition == "":
                             term_sec_tag.set('display', 'frame')
-
-                            # Check if there is a definition available in the lists
-                            if len(text_term_table_list_1) == len(text_term_table_list_2):
-                                index = sec  # Use the current index, but it's better to use an index associated with the lists
-                                if index < len(text_term_table_list_1):
-                                    definition_tag = ET.SubElement(term_entry_id, 'tbx:definition')
-                                    definition_tag.text = text_term_table_list_1[index]
-
-                                    # Add <tbx:source> with text from text_term_table_list_2
-                                    source_tag = ET.SubElement(term_entry_id, 'tbx:source')
-                                    source_tag.text = text_term_table_list_2[index]
-                                else:
-                                    raise Exception("Not enough definitions available in the lists.")
-                            else:
-                                raise Exception("Lengths of text_term_table_list_1 and text_term_table_list_2 do not match.")
-                        elif definition is not None and definition != "":
+                            definition_frame_tag = ET.SubElement(term_entry_id, 'definition')
+                            source_frame_tag = ET.SubElement(term_entry_id, 'source')
+            
+                        if definition is not None and definition != "":
                             definition_tag = ET.SubElement(term_entry_id, 'tbx:definition')
                             definition_tag.text = definition
 
@@ -1086,18 +1118,46 @@ def defaultXML2XML(default_xml, xml_structure):
                     p_tag = ET.SubElement(tag_id[0], 'p')
                     p_tag.text = replace_brackets_with_tags(parsed_text[0])
     
-    # Define the namespace and map it to a prefix (e.g., 'tbx')
-    #namespace = {'tbx': 'http://example.com/tbx-namespace-uri'}  # Replace with the actual namespace URI
+    text_term_table_list_1, text_term_table_list_2 = [], []
+    for t in range(len(root.findall(".//text_term_table_1"))):
+        text_term_table_list_1_t = root.findall(".//text_term_table_1")[t].text
+        text_term_table_list_2_t = root.findall(".//text_term_table_2")[t].text
+        text_term_table_list_1.append(text_term_table_list_1_t)
+        text_term_table_list_2.append(text_term_table_list_2_t)
+    
+    print(text_term_table_list_1)
+    print(text_term_table_list_2)
+    
+    source_tags = standard_root.findall('.//source')#(".//{urn:iso:std:iso:30042:ed-1}source")
+    def_tags = standard_root.findall(".//definition")
+    
+    #for s in range(len(source_tags)):
+    #    source_tags[s].text = text_term_table_list_2[s]
+    
+    print(source_tags)
+    print(def_tags)
 
-    # Find all <term-sec> elements
-    term_sec_elements = standard_root.findall(".//term-sec")#, namespaces=namespace)
-
+    # Create an iterator that cycles through text_term_table_list_1 indefinitely
+    text_iterator_1 = itertools.cycle(text_term_table_list_1)
+    text_iterator_2 = itertools.cycle(text_term_table_list_2)
+    
+    # Iterate through definition tags and assign text from the list
+    for def_tag in def_tags:
+        if def_tag.text is None:
+            def_tag.text = next(text_iterator_1)
+    for source_tag in source_tags:
+        if source_tag.text is None:
+            source_tag.text = next(text_iterator_2)
+    
+    #full_ru.text = intro_ru.text + main_ru.text + compl_ru.text
+    #full_eng.text = Translator(full_ru.text)
+    
     # Create a new XML tree with the modified structure
     new_tree = ET.ElementTree(standard_root)
 
     # Save the new XML to a file
     new_tree.write(xml_structure, encoding='utf-8', xml_declaration=True)
-    return standard_root
+    return standard_root#, xml_tree_dummy
    
 
 if __name__ == "__main__":
@@ -1125,6 +1185,6 @@ if __name__ == "__main__":
     
     #convert daefault XML to NISO STS XML
     xml = os.path.join(output_folder, f"{base_filename}.xml")
-    defaultXML2XML(defaultXML, xml)
+    xxl = defaultXML2XML(defaultXML, xml)
     
 
