@@ -1,0 +1,32 @@
+if __name__ == "__main__":
+    # Specify the folder containing your PDF files
+    pdf_folder = r'PDF_Folder'
+
+    # Iterate through PDF files in the folder
+    for pdf_file in os.listdir(pdf_folder):
+        if pdf_file.lower().endswith('.pdf'):
+            # Get the base filename without extension
+            base_filename = os.path.splitext(pdf_file)[0]
+
+            # Create a folder with the base filename
+            output_folder = os.path.join(pdf_folder, base_filename)
+            os.makedirs(output_folder, exist_ok=True)
+
+            # Convert PDF to DOCX while preserving styles
+            docx_file = os.path.join(output_folder, f"{base_filename}.docx")
+            pdf_to_docx(os.path.join(pdf_folder, pdf_file), docx_file)
+
+            # Create a subfolder for images from the DOCX file
+            image_subfolder = os.path.join(output_folder, f"output_images_{base_filename}")
+            os.makedirs(image_subfolder, exist_ok=True)
+
+            # Helper function to convert DOCX paragraph styles to XML element attributes
+            defaultXML = os.path.join(output_folder, f"{base_filename}_default.xml")
+            docx_to_xml(docx_file, defaultXML)
+
+            # Function to save images from DOCX to the subfolder
+            save_images_from_docx(docx_file, image_subfolder)
+
+            # Convert defaultXML to NISO STS XML
+            xml = os.path.join(output_folder, f"{base_filename}.xml")
+            defaultXML2XML(defaultXML, xml)
